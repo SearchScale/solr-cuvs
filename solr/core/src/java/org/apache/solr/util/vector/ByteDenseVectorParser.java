@@ -37,6 +37,17 @@ public class ByteDenseVectorParser extends DenseVectorParser {
   }
 
   @Override
+  protected void parseIndexVector() {
+    if (inputValue instanceof byte[]) {
+      byte[] bytes = (byte[]) inputValue;
+      checkVectorDimension(bytes.length);
+      byteVector = bytes;
+    } else {
+      super.parseIndexVector();
+    }
+  }
+
+  @Override
   protected void addNumberElement(Number element) {
     byteVector[curPosition++] = element.byteValue();
   }

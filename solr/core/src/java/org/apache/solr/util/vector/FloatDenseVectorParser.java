@@ -37,6 +37,17 @@ public class FloatDenseVectorParser extends DenseVectorParser {
   }
 
   @Override
+  protected void parseIndexVector() {
+    if (inputValue instanceof float[]) {
+      float[] floats = (float[]) inputValue;
+      checkVectorDimension(floats.length);
+      vector = floats;
+    } else {
+      super.parseIndexVector();
+    }
+  }
+
+  @Override
   protected void addNumberElement(Number element) {
     vector[curPosition++] = element.floatValue();
   }
