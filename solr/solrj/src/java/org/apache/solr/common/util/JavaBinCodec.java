@@ -132,6 +132,9 @@ public class JavaBinCodec implements PushWriter {
     readStringAsCharSeq = flag;
     return this;
   }
+  public long bytesWritten() {
+    return daos.written;
+  }
 
   /**
    * Use this to use this as a PushWriter. ensure that close() is called explicitly after use
@@ -298,7 +301,7 @@ public class JavaBinCodec implements PushWriter {
       case SLONG >>> 5:
         return readSmallLong(dis);
       case ARR >>> 5:
-        return readArray(dis);
+        return checkAndReadArray(dis);
       case ORDERED_MAP >>> 5:
         return readOrderedMap(dis);
       case NAMED_LST >>> 5:
@@ -803,6 +806,12 @@ public class JavaBinCodec implements PushWriter {
       Object o = arr[i];
       writeVal(o);
     }
+  }
+
+  /**Optimize for reading primitive arrays, if subclasses want to do it
+   */
+  public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
+    return readArray(dis);
   }
 
   @SuppressWarnings({"unchecked"})

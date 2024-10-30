@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.util.BytesRef;
+import org.apache.solr.client.solrj.request.JavaBinUpdateRequestCodec;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.util.CollectionUtil;
@@ -47,6 +48,8 @@ import org.apache.solr.common.util.JavaBinCodec;
 import org.apache.solr.common.util.ObjectReleaseTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.solr.common.util.JavaBinCodec.ARR;
 
 /**
  * Log Format: List{Operation, Version, ...} ADD, VERSION, DOC DELETE, VERSION, ID_BYTES
@@ -95,6 +98,10 @@ public class TransactionLog implements Closeable {
           if (o instanceof BytesRef) {
             BytesRef br = (BytesRef) o;
             codec.writeByteArray(br.bytes, br.offset, br.length);
+            return null;
+          }
+          if (o instanceof float[]) {
+            JavaBinUpdateRequestCodec.writeFloatArray((float[]) o,codec);
             return null;
           }
           // Fallback: we have no idea how to serialize this.  Be noisy to prevent insidious bugs

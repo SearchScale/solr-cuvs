@@ -18,6 +18,7 @@ package org.apache.solr.client.solrj.request;
 
 import static org.apache.solr.common.params.CommonParams.CHILDDOC;
 import static org.apache.solr.common.util.ByteArrayUtf8CharSequence.convertCharSeq;
+import static org.apache.solr.common.util.JavaBinCodec.ARR;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -200,6 +201,13 @@ public class JavaBinUpdateRequestCodec {
     }
   }
 
+  public static void writeFloatArray(float[] floats, JavaBinCodec codec) throws IOException {
+    codec.writeTag(ARR, floats.length);
+    for (int i = 0; i < floats.length; i++) {
+      codec.writeFloat(floats[i]);
+    }
+  }
+
   class StreamingCodec extends JavaBinCodec {
 
     // TODO This could probably be an AtomicReference<NamedList<?>>
@@ -218,6 +226,27 @@ public class JavaBinUpdateRequestCodec {
       this.handler = handler;
       seenOuterMostDocIterator = false;
     }
+    public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
+      int sz = readSize(dis);
+      tagByte =dis.readByte();
+      if(tagByte == FLOAT){
+        float[] f = new float[sz];
+        f[0] = dis.readFloat();
+        for (int i = 1; i < sz; i++) {
+          tagByte = dis.readByte();
+          f[i] = dis.readFloat();
+        }
+        return f;
+      } else {
+        ArrayList<Object> l = new ArrayList<>(sz);
+        l.add(readObject(dis));
+        for (int i = 1; i < sz; i++) {
+          l.add(readVal(dis));
+        }
+        return l;
+      }
+    }
+
 
     @Override
     protected SolrInputDocument createSolrInputDocument(int sz) {
