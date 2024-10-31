@@ -100,10 +100,6 @@ public class TransactionLog implements Closeable {
             codec.writeByteArray(br.bytes, br.offset, br.length);
             return null;
           }
-          if (o instanceof float[]) {
-            JavaBinUpdateRequestCodec.writeFloatArray((float[]) o,codec);
-            return null;
-          }
           // Fallback: we have no idea how to serialize this.  Be noisy to prevent insidious bugs
           throw new SolrException(
               SolrException.ErrorCode.SERVER_ERROR,

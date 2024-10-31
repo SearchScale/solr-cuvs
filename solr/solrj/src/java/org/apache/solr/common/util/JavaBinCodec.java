@@ -441,7 +441,49 @@ public class JavaBinCodec implements PushWriter {
       writeBoolean(((AtomicBoolean) val).get());
       return true;
     }
+    if (val instanceof float[]) {
+      writeFloatArr((float[])val);
+      return true;
+    }
+    if (val instanceof int[]) {
+      writeIntArr((int[])val);
+      return true;
+    }
+    if (val instanceof long[]) {
+      writeLongArr((long[])val);
+      return true;
+    }
+    if (val instanceof double[]) {
+      writeDoubleArr((double[])val);
+      return true;
+    }
     return false;
+  }
+
+  private void writeFloatArr(float[] vals) throws IOException {
+    writeTag(ARR, vals.length);
+    for (float f : vals) {
+      writeFloat(f);
+    }
+  }
+
+  public void writeIntArr(int[] vals) throws IOException {
+    writeTag(ARR, vals.length);
+    for (int i : vals) {
+      writeInt(i);
+    }
+  }
+  public void writeDoubleArr(double[] vals) throws IOException {
+    writeTag(ARR, vals.length);
+    for (double i : vals) {
+      writeDouble(i);
+    }
+  }
+  public void writeLongArr(long[] vals) throws IOException {
+    writeTag(ARR, vals.length);
+    for (long i : vals) {
+      writeDouble(i);
+    }
   }
 
   public class BinEntryWriter implements MapWriter.EntryWriter {

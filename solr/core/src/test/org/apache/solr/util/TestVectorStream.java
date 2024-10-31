@@ -75,7 +75,7 @@ public class TestVectorStream extends SolrCloudTestCase {
 
         l.add(d);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        JavaBinCodec codec = new JavaBinCodec(baos, floatArrResolver());
+        JavaBinCodec codec = new JavaBinCodec(baos, null);
         codec.writeIterator(l.iterator());
         codec.close();
 
@@ -140,7 +140,7 @@ public class TestVectorStream extends SolrCloudTestCase {
                     @Override
                     public void write(OutputStream os) throws IOException {
                         int counter = 0;
-                        JavaBinCodec codec = new JavaBinCodec(os, floatArrResolver());
+                        JavaBinCodec codec = new JavaBinCodec(os, null);
                         codec.writeTag(ITERATOR);
                         List<Doc> docs = new ArrayList<>();
                         for (;;) {
@@ -203,15 +203,6 @@ public class TestVectorStream extends SolrCloudTestCase {
         }
     }
 
-    static  JavaBinCodec.ObjectResolver floatArrResolver() {
-
-        return (o, codec) -> {
-            if (o instanceof float[]) {
-                JavaBinUpdateRequestCodec.writeFloatArray((float[]) o, codec);
-            }
-            return null;
-        };
-    }
     public static class CSV {
         String[] headers;
         final BufferedReader rdr;

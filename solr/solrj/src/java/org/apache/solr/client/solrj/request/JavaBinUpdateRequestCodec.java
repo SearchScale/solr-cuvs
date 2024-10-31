@@ -201,13 +201,6 @@ public class JavaBinUpdateRequestCodec {
     }
   }
 
-  public static void writeFloatArray(float[] floats, JavaBinCodec codec) throws IOException {
-    codec.writeTag(ARR, floats.length);
-    for (int i = 0; i < floats.length; i++) {
-      codec.writeFloat(floats[i]);
-    }
-  }
-
   class StreamingCodec extends JavaBinCodec {
 
     // TODO This could probably be an AtomicReference<NamedList<?>>
