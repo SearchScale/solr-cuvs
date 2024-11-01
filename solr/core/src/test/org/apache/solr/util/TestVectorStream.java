@@ -6,7 +6,6 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
 import org.apache.solr.client.solrj.request.CollectionAdminRequest;
 import org.apache.solr.client.solrj.request.GenericSolrRequest;
-import org.apache.solr.client.solrj.request.JavaBinUpdateRequestCodec;
 import org.apache.solr.client.solrj.request.RequestWriter;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.cloud.MiniSolrCloudCluster;
@@ -29,13 +28,11 @@ import java.io.OutputStream;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
 
-import static org.apache.solr.common.util.JavaBinCodec.ARR;
-import static org.apache.solr.common.util.JavaBinCodec.ITERATOR;
+import static org.apache.solr.common.util.JavaBinCodec.*;
 
 public class TestVectorStream extends SolrCloudTestCase {
 
@@ -53,10 +50,12 @@ public class TestVectorStream extends SolrCloudTestCase {
             CloudSolrClient client = cluster.getSolrClient();
             CollectionAdminRequest.createCollection(testCollection, "conf", 1, 1).process(client);
             modifySchema(testCollection, client);
-            indexDocs(client,0, new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("wikipedia_vector_dump_100.csv.gz"))),
-                    testCollection);
+            try(GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("wikipedia_vector_dump_100.csv.gz")))) {
+                indexDocs(client, 0, in,
+                        testCollection, 25);
+            }
             QueryResponse resp = client.query(testCollection, new MapSolrParams(Map.of("q", "*:*")));
-
+            assertEquals(100,resp.getResults().getNumFound());
             System.out.println(resp.jsonStr());
         } finally {
             cluster.shutdown();
@@ -71,7 +70,7 @@ public class TestVectorStream extends SolrCloudTestCase {
         d.id="1";
         d.title="T1";
         d.article="The article T1";
-        d.article_vector=new float[]{1.0f,6.763487765f,9.67f};
+        d.article_vector=new float[]{1.0f,6.763487765f,9.67f, 985.37855f};
 
         l.add(d);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -84,7 +83,7 @@ public class TestVectorStream extends SolrCloudTestCase {
             public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
                 int sz = readSize(dis);
                 tagByte =dis.readByte();
-                if(tagByte == FLOAT){
+                if(tagByte == FLOAT) {
                     float[] f = new float[sz];
                     f[0] = dis.readFloat();
                     for (int i = 1; i < sz; i++) {
@@ -104,7 +103,12 @@ public class TestVectorStream extends SolrCloudTestCase {
             }
         }
         .unmarshal(baos.toByteArray());
-        System.out.println(Utils.toJSONString(result));
+        List<Object> list = (List<Object>) result;
+
+        Object article_vector = ((Map) list.get(0)).get("article_vector");
+        assertTrue(article_vector instanceof float[]);
+        assertEquals( ((float[])article_vector).length , 4);
+
     }
 
     private void modifySchema(String testCollection, CloudSolrClient client)
@@ -128,41 +132,60 @@ public class TestVectorStream extends SolrCloudTestCase {
         client.request(req, testCollection);
     }
 
-    private static void indexDocs(SolrClient solr, long start, InputStream in, String coll) throws SolrServerException, IOException {
+    private static void indexDocs(SolrClient solrClient, long start, InputStream in, String coll, int batchSize) throws SolrServerException, IOException {
         BufferedReader br = new BufferedReader(new InputStreamReader(in));
-
         CSV csv = new CSV(br);
+        for(;;) {
+            String[] row = csv.readNext();
+            if(row == null) break;
+            indexBatch(solrClient, csv, row, batchSize );
+        }
+        long end = System.currentTimeMillis();
+        System.out.println("Total time: " + (double) (end - start) / 1000.0D);
+    }
 
-        int counter = 0;
+    private static void indexBatch(SolrClient solrClient, CSV csv, String[] firstRow, int count) throws SolrServerException, IOException {
         GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/update",
                 new MapSolrParams(Map.of("commit", "true")))
                 .setContentWriter(new RequestWriter.ContentWriter() {
                     @Override
                     public void write(OutputStream os) throws IOException {
                         int counter = 0;
-                        JavaBinCodec codec = new JavaBinCodec(os, null);
+                        JavaBinCodec codec = new JavaBinCodec(os, floatArrayResolver());
                         codec.writeTag(ITERATOR);
-                        List<Doc> docs = new ArrayList<>();
+                        String[] row = firstRow;
                         for (;;) {
-                            String[] row = csv.readNext();
                             if (row == null) break;
-                            ++counter;
                             Doc d = new Doc(row);
                             if (d.isErr) continue;
-                            docs.add(d);
                             codec.writeMap(d);
+                            ++counter;
+                            if(counter> count) break;
+                            row = csv.readNext();
                         }
+                        codec.writeTag(END);
                         codec.close();
-                        System.out.println("counter: "+ counter + " bytes: "+ codec.bytesWritten());
                     }
                     @Override
                     public String getContentType() {
                         return CommonParams.JAVABIN_MIME;
                     }
                 });
-        gsr.process(solr, "test");
-        long end = System.currentTimeMillis();
-        System.out.println("Total time: " + (double) (end - start) / 1000.0D);
+        gsr.process(solrClient, "test");
+    }
+
+    private static ObjectResolver floatArrayResolver(){
+        return (o, c) -> {
+            if (o instanceof float[]) {
+                c.writeTag(ARR, ((float[]) o).length);
+                for (float v : (float[]) o) {
+                    c.writeFloat(v);
+                }
+                return null;
+            } else {
+                return o;
+            }
+        };
     }
 
     static class Doc implements MapWriter {
@@ -207,6 +230,7 @@ public class TestVectorStream extends SolrCloudTestCase {
         String[] headers;
         final BufferedReader rdr;
         String line;
+        boolean eof = false;
 
 
         public CSV(Reader rdr) throws IOException {
@@ -251,9 +275,15 @@ public class TestVectorStream extends SolrCloudTestCase {
         }
 
         public String[] readNext() throws IOException {
+            if(eof) return null;
             line = this.rdr.readLine();
-            if (line == null) return null;
-            return parseLine(line);
+            if (line == null) {
+                eof = true;
+                return null;
+            }
+            String[] strings = parseLine(line);
+
+            return strings;
         }
     }
 }
