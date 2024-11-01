@@ -151,7 +151,7 @@ public class TestVectorStream extends SolrCloudTestCase {
                     @Override
                     public void write(OutputStream os) throws IOException {
                         int counter = 0;
-                        JavaBinCodec codec = new JavaBinCodec(os, floatArrayResolver());
+                        JavaBinCodec codec = new JavaBinCodec(os, FLOAT_ARR_RESOLVER);
                         codec.writeTag(ITERATOR);
                         String[] row = firstRow;
                         for (;;) {
@@ -173,20 +173,17 @@ public class TestVectorStream extends SolrCloudTestCase {
                 });
         gsr.process(solrClient, "test");
     }
-
-    private static ObjectResolver floatArrayResolver(){
-        return (o, c) -> {
-            if (o instanceof float[]) {
-                c.writeTag(ARR, ((float[]) o).length);
-                for (float v : (float[]) o) {
-                    c.writeFloat(v);
-                }
-                return null;
-            } else {
-                return o;
+    static ObjectResolver FLOAT_ARR_RESOLVER = (o, c) -> {
+        if (o instanceof float[]) {
+            c.writeTag(ARR, ((float[]) o).length);
+            for (float v : (float[]) o) {
+                c.writeFloat(v);
             }
-        };
-    }
+            return null;
+        } else {
+            return o;
+        }
+    };
 
     static class Doc implements MapWriter {
         String id;
