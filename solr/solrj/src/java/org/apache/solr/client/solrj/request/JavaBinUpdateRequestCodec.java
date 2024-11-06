@@ -190,6 +190,13 @@ public class JavaBinUpdateRequestCodec {
         SolrInputDocument document, UpdateRequest req, Integer commitWithin, Boolean override);
   }
 
+  public interface StreamingMapHandler extends StreamingUpdateHandler {
+    void update(Map<String,Object> m, UpdateRequest req, Integer commitWithin);
+
+  }
+
+
+
   static class MaskCharSequenceSolrInputDoc extends SolrInputDocument {
     public MaskCharSequenceSolrInputDoc(Map<String, SolrInputField> fields) {
       super(fields);
@@ -308,6 +315,7 @@ public class JavaBinUpdateRequestCodec {
       return readOuterMostDocIterator(fis);
     }
 
+    @SuppressWarnings("unchecked")
     private List<Object> readOuterMostDocIterator(DataInputInputStream fis) throws IOException {
       if (namedList[0] == null) namedList[0] = new NamedList<>();
       NamedList<?> params = (NamedList<?>) namedList[0].get("params");
@@ -350,7 +358,14 @@ public class JavaBinUpdateRequestCodec {
           } else if (o instanceof SolrInputDocument) {
             sdoc = (SolrInputDocument) o;
           } else if (o instanceof Map) {
-            sdoc = convertMapToSolrInputDoc((Map) o);
+            if (handler instanceof StreamingMapHandler) {
+              StreamingMapHandler streamingMapHandler = (StreamingMapHandler) handler;
+              streamingMapHandler.update((Map<String, Object>)o, updateRequest, commitWithin);
+
+            } else {
+              sdoc = convertMapToSolrInputDoc((Map) o);
+
+            }
           }
 
           // peek at the next object to see if we're at the end
@@ -360,8 +375,8 @@ public class JavaBinUpdateRequestCodec {
             // doing replication
             updateRequest.lastDocInBatch();
           }
-
-          handler.update(sdoc, updateRequest, commitWithin, overwrite);
+          if(sdoc != null)
+            handler.update(sdoc, updateRequest, commitWithin, overwrite);
         }
         return Collections.emptyList();
       } finally {
