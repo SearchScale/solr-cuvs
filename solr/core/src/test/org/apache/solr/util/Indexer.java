@@ -11,122 +11,139 @@ import org.apache.solr.common.MapWriter;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.MapSolrParams;
 import org.apache.solr.common.util.JavaBinCodec;
+import org.eclipse.jetty.util.BlockingArrayQueue;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.solr.common.util.JavaBinCodec.*;
 
 public class Indexer {
     static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    static JavaBinCodec.ObjectResolver FLOAT_ARR_RESOLVER = (o, c) -> {
-        if (o instanceof float[]) {
-            c.writeTag(ARR, ((float[]) o).length);
-            for (float v : (float[]) o) {
-                c.writeFloat(v);
-            }
-            return null;
-        } else {
-            return o;
-        }
-    };
 
-    public static void indexDocs(SolrClient solrClient, long start, InputStream in, String coll, int batchSize) throws SolrServerException, IOException {
+    static final String EOL = "###";
+
+    public static void indexDocs(SolrClient solrClient,
+                                 long start,
+                                 InputStream in,
+                                 String coll, int batchSize, int threads) throws SolrServerException, IOException, InterruptedException {
         BufferedReader br = new BufferedReader(new InputStreamReader(in));
-        CSV csv = new CSV(br);
-        LongAdder total = new LongAdder();
-
+        String header = br.readLine();
+        AtomicLong total = new AtomicLong();
+        BlockingArrayQueue<String> queue = new BlockingArrayQueue<>();
         System.out.println("\nStarting index %%%%%%%%%%%%%%%");
-
-        for (; ; ) {
-            String[] row = csv.readNext();
-            if (row == null) break;
-            indexBatch(solrClient, csv, row, batchSize, coll, total);
-            System.out.println(total.sum());
-        }
-        long end = System.currentTimeMillis();
-        System.out.println("\nTotal time: " + (double) (end - start) / 1000.0D);
-    }
-
-    public static void indexBatch(SolrClient solrClient, CSV csv, String[] firstRow, int batchSize, String coll, LongAdder total) throws SolrServerException, IOException {
-
-        GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/update",
-                new MapSolrParams(Map.of("commit", "true")))
-                .setContentWriter(new RequestWriter.ContentWriter() {
-                    @Override
-                    public void write(OutputStream os) throws IOException {
-                        JavaBinCodec codec = new JavaBinCodec(os, FLOAT_ARR_RESOLVER);
-
-                        int errs = 0;
-                        int counter = 0;
-
-                        codec.writeTag(ITERATOR);
-                        String[] row = firstRow;
-                        for (; ; ) {
-                            if (row == null) break;
-                            long start = System.nanoTime();
-                            try {
-                                codec.writeMap(parse(row));
-                                counter++;
-                                System.out.print((System.nanoTime() - start) + " ");
-                                if (counter % 100 == 0) System.out.println(counter);
-                                if (counter >= batchSize) break;
-                            } catch (IllegalArgumentException exp) {
-                                errs++;
-                            }
-                            row = csv.readNext();
-                        }
-                        codec.writeTag(END);
-                        total.add(counter);
-                        codec.close();
-                    }
-
-                    @Override
-                    public String getContentType() {
-                        return CommonParams.JAVABIN_MIME;
-                    }
-                });
-
-        gsr.process(solrClient, coll);
-    }
-
-  /*  static class Doc implements MapWriter {
-
-        String id;
-        String title;
-        String article;
-        float[] article_vector;
-        boolean isErr = false;
-
-        public Doc() {
+        Thread[] t = new Thread[threads];
+        for (int i = 0; i < t.length; i++) {
+            t[i] = new Thread(new IndexRunnable(total, queue, solrClient, coll, batchSize));
+            t[i].start();
         }
 
-
-        public Doc(String[] row) {
-            if (row.length < 4) {
-                //invalid row
-                isErr = true;
-                return;
+        while (true) {
+            String line = br.readLine();
+            if(line == null) {
+                queue.offer(EOL);
+                break;
             }
+            queue.offer(line);
 
         }
+        for (Thread thread : t) {
+            thread.join();
+        }
+
+        long end = System.currentTimeMillis();
+        System.out.println("\nTotal time: " + (end - start) / 1000);
+    }
+
+    static class IndexRunnable implements Runnable{
+        final AtomicLong total ;
+        final BlockingArrayQueue<String> queue;
+        final SolrClient solrClient;
+        final String coll;
+        final int batchSz;
+        boolean eol =  false;
+
+
+        IndexRunnable(AtomicLong total, BlockingArrayQueue<String> rows, SolrClient solrClient, String coll, int batchSz) {
+            this.total = total;
+            this.queue = rows;
+            this.solrClient = solrClient;
+            this.coll = coll;
+            this.batchSz = batchSz;
+        }
+        private void streamDocsBatch(OutputStream os) throws IOException {
+            JavaBinCodec codec = new JavaBinCodec(os, FLOAT_ARR_RESOLVER);
+            codec.writeTag(ITERATOR);
+            for(;;){
+
+                String line = queue.remove();
+                if(line == EOL){
+                    eol = true;
+                    queue.offer(line);//put it back so that other threads can exit too
+                    break;
+                } else {
+                    MapWriter d = null;
+                    try {
+                        d = parse(parseLine(line));
+                    } catch (Exception e) {
+                        //invalid doc
+                        continue;
+                    }
+                    try {
+                        codec.writeMap(d);
+                        long count = total.incrementAndGet();
+                        if(count % batchSz == 0) {
+                            System.out.println(count);
+                            break;
+                        } else if(count % 1000 ==0){
+                            System.out.print(".");
+                        }
+                    } catch (IOException e) {
+                        //error writing to server, exit
+                        eol = true;
+                    }
+                }
+            }
+            codec.writeTag(END);
+        }
+
 
         @Override
-        public void writeMap(EntryWriter ew) throws IOException {
-            ew.put("id", id);
-            ew.put("title", title);
-            ew.put("article", article);
-            ew.put("article_vector", article_vector);
+        public void run() {
+            for (; ; ) {
+                if (eol) break;
+                GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/update",
+                        new MapSolrParams(Map.of("commit", "true")))
+                        .setContentWriter(new RequestWriter.ContentWriter() {
+                            @Override
+                            public void write(OutputStream os) throws IOException {
+                                streamDocsBatch(os);
+                            }
+
+
+                            @Override
+                            public String getContentType() {
+                                return CommonParams.JAVABIN_MIME;
+                            }
+
+                        });
+                try {
+                    gsr.process(solrClient, coll);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
         }
-    }*/
+
+    }
+
 
     static MapWriter parse(String[] row) {
         String id;
@@ -143,8 +160,6 @@ public class Indexer {
         try {
             String json = row[3];
             if (json.charAt(0) != '[') {
-                //Invalid row
-
                 throw new IllegalArgumentException("Invalid json");
             }
 
@@ -169,68 +184,43 @@ public class Indexer {
         }
 
     }
+    private static String[] parseLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        char[] chars = line.toCharArray();
 
+        for (int i = 0; i < chars.length; i++) {
+            char currentChar = chars[i];
 
-    public static class CSV {
-        String[] headers;
-        final BufferedReader rdr;
-        String line;
-        boolean eof = false;
-
-
-        public CSV(Reader rdr) throws IOException {
-
-            this.rdr = rdr instanceof BufferedReader ?
-                    (BufferedReader) rdr :
-                    new BufferedReader(rdr);
-            String line = this.rdr.readLine();
-            if (line == null)
-                throw new RuntimeException("Empty or invalid CSV file.");
-            headers = parseLine(line);
-        }
-
-        // Method to parse a single line of CSV, handling quoted fields
-        private static String[] parseLine(String line) {
-//         System.out.println(line);
-            List<String> values = new ArrayList<>();
-            StringBuilder currentValue = new StringBuilder();
-            boolean inQuotes = false;
-            char[] chars = line.toCharArray();
-
-            for (int i = 0; i < chars.length; i++) {
-                char currentChar = chars[i];
-
-                if (currentChar == '"') {
-                    // Toggle the inQuotes flag
-                    inQuotes = !inQuotes;
-                } else if (currentChar == ',' && !inQuotes) {
-                    // If a comma is found and we're not inside quotes, end the current value
-                    values.add(currentValue.toString());
-                    currentValue = new StringBuilder();
-                } else {
-                    // Add the current character to the current value
-                    currentValue.append(currentChar);
-                }
+            if (currentChar == '"') {
+                // Toggle the inQuotes flag
+                inQuotes = !inQuotes;
+            } else if (currentChar == ',' && !inQuotes) {
+                // If a comma is found and we're not inside quotes, end the current value
+                values.add(currentValue.toString());
+                currentValue = new StringBuilder();
+            } else {
+                // Add the current character to the current value
+                currentValue.append(currentChar);
             }
-
-            // Add the last value
-            values.add(currentValue.toString());
-            return values.toArray(new String[0]);
         }
 
-        public String[] readNext() throws IOException {
-            if (eof) return null;
-            line = this.rdr.readLine();
-            if (line == null) {
-                eof = true;
-                return null;
-            }
-            String[] strings = parseLine(line);
-
-            return strings;
-        }
+        // Add the last value
+        values.add(currentValue.toString());
+        return values.toArray(new String[0]);
     }
-
     static TypeReference<List<Float>> valueTypeRef = new TypeReference<>() {
+    };
+    static JavaBinCodec.ObjectResolver FLOAT_ARR_RESOLVER = (o, c) -> {
+        if (o instanceof float[]) {
+            c.writeTag(ARR, ((float[]) o).length);
+            for (float v : (float[]) o) {
+                c.writeFloat(v);
+            }
+            return null;
+        } else {
+            return o;
+        }
     };
 }

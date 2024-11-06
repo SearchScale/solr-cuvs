@@ -16,7 +16,6 @@ import org.apache.solr.common.util.JavaBinCodec;
 import org.apache.solr.response.XMLResponseWriter;
 import org.junit.Test;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +43,7 @@ public class TestVectorStream extends SolrCloudTestCase {
             modifySchema(testCollection, client);
             try(GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("10k_wiki.csv.gz")))) {
                 Indexer.indexDocs(client, 0, in,
-                        testCollection, 2000);
+                        testCollection, 2000, 1);
             }
             QueryResponse resp = client.query(testCollection, new MapSolrParams(Map.of("q", "*:*")));
 //            assertEquals(100,resp.getResults().getNumFound());
