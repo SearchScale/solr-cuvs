@@ -65,10 +65,6 @@
         "q": "{!lucene}*:*"
       }
     },
-    "/directupdate": {
-      "class": "solr.DirectIndexingRequestHandler",
-      "useParams":"_DIRECT_UPDATE"
-    },
     "/admin/segments": {
       "class": "solr.SegmentsInfoRequestHandler",
       "useParams":"_ADMIN_SEGMENTS"
