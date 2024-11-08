@@ -21,15 +21,18 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
+import org.apache.solr.common.params.MapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.ContentStream;
 import org.apache.solr.common.util.DataInputInputStream;
 import org.apache.solr.common.util.JavaBinCodec;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.core.SolrCore;
+import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
+import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.update.CommitUpdateCommand;
 import org.apache.solr.update.DocumentBuilder;
@@ -96,6 +99,14 @@ public class DirectIndexingRequestHandler extends RequestHandlerBase implements 
           System.out.println("END_STREAM: " +counter+" " + (System.currentTimeMillis() - startTime));
           iw.decref();
           if(commit) {
+              long b4Commit = System.currentTimeMillis();
+              System.out.println("gonna commit");
+              MapSolrParams args = new MapSolrParams(Map.of("commit", "true"));
+              SolrQueryRequest req = new LocalSolrQueryRequest(core, args);
+              core.getUpdateHandler().commit(new CommitUpdateCommand(req, false));
+              System.out.println("done commit: "+ (System.currentTimeMillis() -b4Commit));
+          }
+        /*  if(commit) {
               try {
                   System.out.println("GONNA_COMMIT "+ w.getDocStats().maxDoc);
                   try {
@@ -104,11 +115,18 @@ public class DirectIndexingRequestHandler extends RequestHandlerBase implements 
                       core.getSolrCoreState().openIndexWriter(core);
                   }
 
-                  core.openNewSearcher(true,false ).decref();
+                  RefCounted<SolrIndexSearcher> s = core.openNewSearcher(true, false);
+                  try{
+                      System.out.println("searcher: "+ s.get().maxDoc());
+
+                  } finally {
+                      s.decref();
+
+                  }
               } finally {
 
               }
-          }
+          }*/
       }
   }
 

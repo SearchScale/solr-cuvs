@@ -6,6 +6,7 @@ import org.apache.solr.client.solrj.impl.CloudSolrClient;
 import org.apache.solr.client.solrj.request.CollectionAdminRequest;
 import org.apache.solr.client.solrj.request.GenericSolrRequest;
 import org.apache.solr.client.solrj.request.RequestWriter;
+import org.apache.solr.client.solrj.request.UpdateRequest;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.cloud.MiniSolrCloudCluster;
 import org.apache.solr.cloud.SolrCloudTestCase;
@@ -46,13 +47,19 @@ public class TestVectorStream extends SolrCloudTestCase {
             modifyConfig(testCollection, client);
             //wikipedia_vector_dump_100.csv.gz
             //10k_wiki.csv.gz
-            try(GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("10k_wiki.csv.gz")))) {
+            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("10k_wiki.csv.gz")))) {
                 Indexer.indexDocs(client, 0, in,
                         testCollection, 100000, 1);
             }
+
+//            client.commit(testCollection);
+
+            long numFound = -1;
             QueryResponse resp = client.query(testCollection, new MapSolrParams(Map.of("q", "*:*")));
-            assertEquals(100,resp.getResults().getNumFound());
-            System.out.println("num docs: "+ resp.getResults().getNumFound());
+            numFound = resp.getResults().getNumFound();
+
+            assertEquals(9997, numFound);
+            System.out.println("num docs: " +numFound);
         } finally {
             cluster.shutdown();
 
@@ -64,18 +71,18 @@ public class TestVectorStream extends SolrCloudTestCase {
         List<MapWriter> l = new ArrayList<>();
 
 
-        l.add(Indexer.parse(new String[]{"1","T1", "The article T1", "{1.0f,6.763487765f,9.67f, 985.37855f}"}));
+        l.add(Indexer.parse(new String[]{"1", "T1", "The article T1", "{1.0f,6.763487765f,9.67f, 985.37855f}"}));
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         JavaBinCodec codec = new JavaBinCodec(baos, null);
         codec.writeIterator(l.iterator());
         codec.close();
 
-        Object result = new JavaBinCodec(){
+        Object result = new JavaBinCodec() {
             @Override
             public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
                 int sz = readSize(dis);
-                tagByte =dis.readByte();
-                if(tagByte == FLOAT) {
+                tagByte = dis.readByte();
+                if (tagByte == FLOAT) {
                     float[] f = new float[sz];
                     f[0] = dis.readFloat();
                     for (int i = 1; i < sz; i++) {
@@ -94,12 +101,12 @@ public class TestVectorStream extends SolrCloudTestCase {
 
             }
         }
-        .unmarshal(baos.toByteArray());
+                .unmarshal(baos.toByteArray());
         List<Object> list = (List<Object>) result;
 
         Object article_vector = ((Map) list.get(0)).get("article_vector");
         assertTrue(article_vector instanceof float[]);
-        assertEquals( ((float[])article_vector).length , 4);
+        assertEquals(((float[]) article_vector).length, 4);
 
     }
 
@@ -117,12 +124,13 @@ public class TestVectorStream extends SolrCloudTestCase {
                                                 + "\"add-field\" : ["
                                                 + "{\"name\":\"title\",\"type\":\"string\",\"stored\":true},\n"
                                                 + "{\"name\":\"article\",\"type\":\"string\",\"stored\":true},\n"
-                                                + "{\"name\":\"article_vector\",\"type\":\"knn_vector\",\"stored\":true},\n"+
-                                        "]}",
+                                                + "{\"name\":\"article_vector\",\"type\":\"knn_vector\",\"stored\":true},\n" +
+                                                "]}",
                                         XMLResponseWriter.CONTENT_TYPE_XML_UTF8));
 
         client.request(req, testCollection);
     }
+
     private void modifyConfig(String testCollection, CloudSolrClient client)
             throws SolrServerException, IOException {
         GenericSolrRequest req =

@@ -228,8 +228,8 @@ public class Indexer {
 
             return ew -> {
                 ew.put("id", id);
-                ew.put("title", title);
-                ew.put("article", article);
+//                ew.put("title", title);
+//                ew.put("article", article);
                 ew.put("article_vector", article_vector);
 
             };
