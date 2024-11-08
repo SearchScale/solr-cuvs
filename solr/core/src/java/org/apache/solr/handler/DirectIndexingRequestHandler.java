@@ -191,6 +191,7 @@ public class DirectIndexingRequestHandler extends RequestHandlerBase implements 
       @SuppressWarnings("rawtypes")
       final Map reusedMap = nl.asShallowMap(true);
 
+      @SuppressWarnings("unchecked")
       final SolrInputDocument d = new SolrInputDocument(reusedMap);
 
       public MapIterReader(Listener listener) {
