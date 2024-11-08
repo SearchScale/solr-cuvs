@@ -34,19 +34,24 @@ public class TestVectorStream extends SolrCloudTestCase {
         MiniSolrCloudCluster cluster =
                 configureCluster(1)
                         .addConfig(
-                                "conf", TEST_PATH().resolve("configsets").resolve("cloud-managed").resolve("conf"))
+                                "conf", TEST_PATH().resolve("configsets")
+                                        .resolve("cloud-managed")
+                                        .resolve("conf"))
                         .configure();
         try {
             System.setProperty("managed.schema.mutable", "true");
             CloudSolrClient client = cluster.getSolrClient();
             CollectionAdminRequest.createCollection(testCollection, "conf", 1, 1).process(client);
             modifySchema(testCollection, client);
+            modifyConfig(testCollection, client);
+            //wikipedia_vector_dump_100.csv.gz
+            //10k_wiki.csv.gz
             try(GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("10k_wiki.csv.gz")))) {
                 Indexer.indexDocs(client, 0, in,
-                        testCollection, 2000, 1);
+                        testCollection, 100000, 1);
             }
             QueryResponse resp = client.query(testCollection, new MapSolrParams(Map.of("q", "*:*")));
-//            assertEquals(100,resp.getResults().getNumFound());
+            assertEquals(100,resp.getResults().getNumFound());
             System.out.println("num docs: "+ resp.getResults().getNumFound());
         } finally {
             cluster.shutdown();
@@ -114,6 +119,23 @@ public class TestVectorStream extends SolrCloudTestCase {
                                                 + "{\"name\":\"article\",\"type\":\"string\",\"stored\":true},\n"
                                                 + "{\"name\":\"article_vector\",\"type\":\"knn_vector\",\"stored\":true},\n"+
                                         "]}",
+                                        XMLResponseWriter.CONTENT_TYPE_XML_UTF8));
+
+        client.request(req, testCollection);
+    }
+    private void modifyConfig(String testCollection, CloudSolrClient client)
+            throws SolrServerException, IOException {
+        GenericSolrRequest req =
+                new GenericSolrRequest(SolrRequest.METHOD.POST, "/config")
+                        .setRequiresCollection(true)
+                        .setContentWriter(
+                                new RequestWriter.StringPayloadContentWriter(
+                                        "{\n" +
+                                                "           \"add-requesthandler\": {\n" +
+                                                "             \"name\": \"/directupdate\",\n" +
+                                                "             \"class\": \"solr.DirectIndexingRequestHandler\"\n" +
+                                                "             }\n" +
+                                                "         }",
                                         XMLResponseWriter.CONTENT_TYPE_XML_UTF8));
 
         client.request(req, testCollection);

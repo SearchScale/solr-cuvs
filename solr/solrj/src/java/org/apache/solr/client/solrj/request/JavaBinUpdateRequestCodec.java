@@ -226,6 +226,7 @@ public class JavaBinUpdateRequestCodec {
       this.handler = handler;
       seenOuterMostDocIterator = false;
     }
+    @Override
     public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
       int sz = readSize(dis);
       tagByte =dis.readByte();

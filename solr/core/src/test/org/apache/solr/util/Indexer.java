@@ -11,7 +11,12 @@ import org.apache.solr.common.MapWriter;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.MapSolrParams;
 import org.apache.solr.common.util.JavaBinCodec;
-import org.eclipse.jetty.util.BlockingArrayQueue;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.concurrent.ArrayBlockingQueue;
+
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -22,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.GZIPInputStream;
 
 import static org.apache.solr.common.util.JavaBinCodec.*;
 
@@ -30,28 +36,65 @@ public class Indexer {
 
     static final String EOL = "###";
 
-    public static void indexDocs(SolrClient solrClient,
-                                 long start,
-                                 InputStream in,
-                                 String coll, int batchSize, int threads) throws SolrServerException, IOException, InterruptedException {
+    public static void main(String[] args) throws Exception {
+        String inputFile = args[0];
+        String outputFile = args[1];
+        long docsCount=Long.parseLong(args[2]);
+
+        try (InputStream in = new GZIPInputStream(new FileInputStream(inputFile))) {
+            BufferedReader br = new BufferedReader(new InputStreamReader(in));
+            String header = br.readLine();
+            FileOutputStream os = new FileOutputStream(outputFile);
+            JavaBinCodec codec = new JavaBinCodec(os, FLOAT_ARR_RESOLVER);
+            int count=0;
+
+            codec.writeTag(ITERATOR);
+            for(;;) {
+                String line = br.readLine();
+                if (line == null) {
+                    System.out.println(EOL);
+                    break;
+                }
+                MapWriter d = null;
+                try {
+                    d = parse(parseLine(line));
+                    codec.writeMap(d);
+
+                    count++;
+                    if(count>= docsCount) break;
+                } catch (Exception e) {
+                    //invalid doc
+                    continue;
+                }
+
+            }
+            codec.writeTag(END);
+            codec.close();
+            os.close();
+        }
+    }
+
+
+    public static void indexDocs(SolrClient solrClient, long start, InputStream in, String coll, int batchSize, int threads) throws SolrServerException, IOException, InterruptedException {
         BufferedReader br = new BufferedReader(new InputStreamReader(in));
         String header = br.readLine();
         AtomicLong total = new AtomicLong();
-        BlockingArrayQueue<String> queue = new BlockingArrayQueue<>();
+        ArrayBlockingQueue<String> queue = new ArrayBlockingQueue<String>(10000);
         System.out.println("\nStarting index %%%%%%%%%%%%%%%");
         Thread[] t = new Thread[threads];
         for (int i = 0; i < t.length; i++) {
-            t[i] = new Thread(new IndexRunnable(total, queue, solrClient, coll, batchSize));
+            t[i] = new Thread(new IndexRunnable(i,total, queue, solrClient, coll, batchSize));
             t[i].start();
         }
 
         while (true) {
             String line = br.readLine();
             if(line == null) {
-                queue.offer(EOL);
+                System.out.println(EOL);
+                queue.put(EOL);
                 break;
             }
-            queue.offer(line);
+            queue.put(line);
 
         }
         for (Thread thread : t) {
@@ -64,14 +107,16 @@ public class Indexer {
 
     static class IndexRunnable implements Runnable{
         final AtomicLong total ;
-        final BlockingArrayQueue<String> queue;
+        final ArrayBlockingQueue<String> queue;
         final SolrClient solrClient;
         final String coll;
         final int batchSz;
         boolean eol =  false;
+        int id;
 
 
-        IndexRunnable(AtomicLong total, BlockingArrayQueue<String> rows, SolrClient solrClient, String coll, int batchSz) {
+        IndexRunnable(int id, AtomicLong total, ArrayBlockingQueue<String> rows, SolrClient solrClient, String coll, int batchSz) {
+            this.id = id;
             this.total = total;
             this.queue = rows;
             this.solrClient = solrClient;
@@ -83,10 +128,19 @@ public class Indexer {
             codec.writeTag(ITERATOR);
             for(;;){
 
-                String line = queue.remove();
+                String line = null;
+                try {
+                    line = queue.take();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
                 if(line == EOL){
                     eol = true;
-                    queue.offer(line);//put it back so that other threads can exit too
+                    try {
+                        queue.put(line);//put it back so that other threads can exit too
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
                     break;
                 } else {
                     MapWriter d = null;
@@ -112,14 +166,16 @@ public class Indexer {
                 }
             }
             codec.writeTag(END);
+            codec.close();
         }
 
 
         @Override
         public void run() {
+            System.out.println("starting thread : "+id);
             for (; ; ) {
                 if (eol) break;
-                GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/update",
+                GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/directupdate",
                         new MapSolrParams(Map.of("commit", "true")))
                         .setContentWriter(new RequestWriter.ContentWriter() {
                             @Override
@@ -140,6 +196,7 @@ public class Indexer {
                     throw new RuntimeException(e);
                 }
             }
+            System.out.println("exit thread :"+id);
         }
 
     }
