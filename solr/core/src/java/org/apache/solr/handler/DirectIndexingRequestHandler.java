@@ -21,18 +21,19 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
+import org.apache.solr.common.annotation.JsonProperty;
 import org.apache.solr.common.params.MapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.ContentStream;
 import org.apache.solr.common.util.DataInputInputStream;
 import org.apache.solr.common.util.JavaBinCodec;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.common.util.ReflectMapWriter;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
-import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.update.CommitUpdateCommand;
 import org.apache.solr.update.DocumentBuilder;
@@ -62,82 +63,76 @@ public class DirectIndexingRequestHandler extends RequestHandlerBase implements 
   public void inform(SolrCore core) {
     this.core = core;
   }
-  class Listener implements MapIterReader.Listener {
+  class Listener implements MapIterReader.Listener, ReflectMapWriter {
       private final IndexSchema schema;
       RefCounted<IndexWriter> iw ;
       IndexWriter w;
-      boolean commit;
+
+      @JsonProperty
+      public final boolean commit;
+      // only for perf testing purpose
+      @JsonProperty
+      public final boolean discard;
       long startTime;
 
-      int counter;
 
-      Listener( SolrParams p) {
+      @JsonProperty
+      public int totalDocs;
+
+
+      Listener(SolrParams p) {
           this.schema = core.getLatestSchema();
           commit = p.getBool("commit", false);
+          discard = p.getBool("discard", false);
       }
 
       @Override
       public void start() throws IOException {
-          startTime=System.currentTimeMillis();
-          System.out.print("START_STREAM");
-         iw =  core.getSolrCoreState().getIndexWriter(core);
-         w = iw.get();
+          startTime = System.currentTimeMillis();
+          log.info("START_STREAM");
+          iw = core.getSolrCoreState().getIndexWriter(core);
+          w = iw.get();
       }
 
       @Override
       public void doc(SolrInputDocument sid) throws IOException {
-          counter++;
+          totalDocs++;
 //          if(counter%100 ==0) System.out.println();
           Document d = DocumentBuilder.toDocument(sid, schema, false, true);
 //          System.out.println(d.getFields().size() +" "+d.get("id"));
-          w.addDocument(d);
+          if(!discard){
+              w.addDocument(d);
+          }
 
       }
+      @JsonProperty
+      public long indexTime;
+      @JsonProperty
+      public long commitTime;
 
       @Override
       public void end() throws IOException {
-          System.out.println("END_STREAM: " +counter+" " + (System.currentTimeMillis() - startTime));
+          indexTime =  System.currentTimeMillis() - startTime;
+          log.info("END_STREAM: docs:{}, time taken : {} ", +totalDocs,indexTime);
           iw.decref();
           if(commit) {
               long b4Commit = System.currentTimeMillis();
-              System.out.println("gonna commit");
+              log.info("gonna commit");
               MapSolrParams args = new MapSolrParams(Map.of("commit", "true"));
               SolrQueryRequest req = new LocalSolrQueryRequest(core, args);
               core.getUpdateHandler().commit(new CommitUpdateCommand(req, false));
-              System.out.println("done commit: "+ (System.currentTimeMillis() -b4Commit));
+              commitTime = System.currentTimeMillis() - b4Commit;
+              log.info("done commit: {}",commitTime);
           }
-        /*  if(commit) {
-              try {
-                  System.out.println("GONNA_COMMIT "+ w.getDocStats().maxDoc);
-                  try {
-                      core.getSolrCoreState().closeIndexWriter(core, false);
-                  } finally {
-                      core.getSolrCoreState().openIndexWriter(core);
-                  }
-
-                  RefCounted<SolrIndexSearcher> s = core.openNewSearcher(true, false);
-                  try{
-                      System.out.println("searcher: "+ s.get().maxDoc());
-
-                  } finally {
-                      s.decref();
-
-                  }
-              } finally {
-
-              }
-          }*/
       }
   }
 
   @Override
-  @SuppressWarnings({"unchecked"})
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
       ContentStream is = extractSingleContentStream(req);
-      new MapIterReader(new Listener(req.getParams())).unmarshal(is.getStream());
-
-
-
+      Listener listener = new Listener(req.getParams());
+      new MapIterReader(listener).unmarshal(is.getStream());
+      rsp.getValues().add("stats", listener);
   }
 
   private ContentStream extractSingleContentStream(SolrQueryRequest req) {
