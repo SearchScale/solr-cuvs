@@ -63,7 +63,7 @@ public class DirectIndexingRequestHandler extends RequestHandlerBase implements 
   public void inform(SolrCore core) {
     this.core = core;
   }
-  class Listener implements MapIterReader.Listener, ReflectMapWriter {
+  public class Listener implements MapIterReader.Listener, ReflectMapWriter {
       private final IndexSchema schema;
       RefCounted<IndexWriter> iw ;
       IndexWriter w;
