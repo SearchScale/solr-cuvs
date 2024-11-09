@@ -44,7 +44,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -215,26 +214,6 @@ public class DirectIndexingRequestHandler extends RequestHandlerBase implements 
       protected Map<Object,Object> newMap(int size) {
           nl.clear();
           return reusedMap;
-      }
-      public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
-          int sz = readSize(dis);
-          tagByte =dis.readByte();
-          if(tagByte == FLOAT){
-              float[] f = new float[sz];
-              f[0] = dis.readFloat();
-              for (int i = 1; i < sz; i++) {
-                  tagByte = dis.readByte();
-                  f[i] = dis.readFloat();
-              }
-              return f;
-          } else {
-              ArrayList<Object> l = new ArrayList<>(sz);
-              l.add(readObject(dis));
-              for (int i = 1; i < sz; i++) {
-                  l.add(readVal(dis));
-              }
-              return l;
-          }
       }
 
 

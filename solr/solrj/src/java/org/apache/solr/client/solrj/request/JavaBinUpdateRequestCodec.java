@@ -226,27 +226,6 @@ public class JavaBinUpdateRequestCodec {
       this.handler = handler;
       seenOuterMostDocIterator = false;
     }
-    @Override
-    public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
-      int sz = readSize(dis);
-      tagByte =dis.readByte();
-      if(tagByte == FLOAT){
-        float[] f = new float[sz];
-        f[0] = dis.readFloat();
-        for (int i = 1; i < sz; i++) {
-          tagByte = dis.readByte();
-          f[i] = dis.readFloat();
-        }
-        return f;
-      } else {
-        ArrayList<Object> l = new ArrayList<>(sz);
-        l.add(readObject(dis));
-        for (int i = 1; i < sz; i++) {
-          l.add(readVal(dis));
-        }
-        return l;
-      }
-    }
 
 
     @Override

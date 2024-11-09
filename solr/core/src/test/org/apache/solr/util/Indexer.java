@@ -1,5 +1,6 @@
 package org.apache.solr.util;
 
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.solr.client.solrj.SolrClient;
@@ -45,7 +46,7 @@ public class Indexer {
             BufferedReader br = new BufferedReader(new InputStreamReader(in));
             String header = br.readLine();
             FileOutputStream os = new FileOutputStream(outputFile);
-            JavaBinCodec codec = new JavaBinCodec(os, FLOAT_ARR_RESOLVER);
+            JavaBinCodec codec = new JavaBinCodec(os,null);
             int count=0;
 
             codec.writeTag(ITERATOR);
@@ -73,6 +74,8 @@ public class Indexer {
             os.close();
         }
     }
+
+/*    static class J extends JavaBinCodec { public J(OutputStream os) throws IOException {super(os, null);}@Override public void writeVal(Object o) throws IOException {if (o instanceof float[] f) {writeTag((byte)21);writeTag(FLOAT);writeVInt( f.length,daos);for (float v : f) writeFloat(v);return;} else super.writeVal(o);}}*/
 
 
     public static void indexDocs(SolrClient solrClient, long start, InputStream in, String coll, int batchSize, int threads) throws SolrServerException, IOException, InterruptedException {
@@ -124,7 +127,7 @@ public class Indexer {
             this.batchSz = batchSz;
         }
         private void streamDocsBatch(OutputStream os) throws IOException {
-            JavaBinCodec codec = new JavaBinCodec(os, FLOAT_ARR_RESOLVER);
+            JavaBinCodec codec = new JavaBinCodec(os,null);
             codec.writeTag(ITERATOR);
             for(;;){
 
@@ -175,7 +178,7 @@ public class Indexer {
             System.out.println("starting thread : "+id);
             for (; ; ) {
                 if (eol) break;
-                GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/directupdate",
+                GenericSolrRequest gsr = new GenericSolrRequest(SolrRequest.METHOD.POST, "/update",
                         new MapSolrParams(Map.of("commit", "true")))
                         .setContentWriter(new RequestWriter.ContentWriter() {
                             @Override
@@ -269,15 +272,5 @@ public class Indexer {
     }
     static TypeReference<List<Float>> valueTypeRef = new TypeReference<>() {
     };
-    static JavaBinCodec.ObjectResolver FLOAT_ARR_RESOLVER = (o, c) -> {
-        if (o instanceof float[]) {
-            c.writeTag(ARR, ((float[]) o).length);
-            for (float v : (float[]) o) {
-                c.writeFloat(v);
-            }
-            return null;
-        } else {
-            return o;
-        }
-    };
+
 }

@@ -103,6 +103,7 @@ public class JavaBinCodec implements PushWriter {
       MAP_ENTRY = 19,
       UUID = 20, // This is reserved to be used only in LogCodec
       // types that combine tag + length (or other info) in a single byte
+      PRIMITIVE_ARR =21,
       TAG_AND_LEN = (byte) (1 << 5),
       STR = (byte) (1 << 5),
       SINT = (byte) (2 << 5),
@@ -301,7 +302,7 @@ public class JavaBinCodec implements PushWriter {
       case SLONG >>> 5:
         return readSmallLong(dis);
       case ARR >>> 5:
-        return checkAndReadArray(dis);
+        return readArray(dis);
       case ORDERED_MAP >>> 5:
         return readOrderedMap(dis);
       case NAMED_LST >>> 5:
@@ -351,6 +352,8 @@ public class JavaBinCodec implements PushWriter {
         return readMapEntry(dis);
       case MAP_ENTRY_ITER:
         return readMapIter(dis);
+      case PRIMITIVE_ARR:
+        return readPrimitiveArray(dis);
     }
 
     throw new RuntimeException("Unknown type " + tagByte);
@@ -459,32 +462,78 @@ public class JavaBinCodec implements PushWriter {
     }
     return false;
   }
+  public Object readPrimitiveArray(DataInputInputStream dis) throws IOException {
+    tagByte = dis.readByte();
+    int len =  readVInt(dis);
+    switch (tagByte) {
+      case FLOAT:{
+        float[] val =new float[len];
+        for (int i=0;i<len;i++){
+          val[i] = dis.readFloat();
+        }
+        return val;
+      }
+      case INT:{
+        int[] val =new int[len];
+        for (int i=0;i<len;i++){
+          val[i] = dis.readInt();
+        }
+        return val;
+      }
 
-  private void writeFloatArr(float[] vals) throws IOException {
-    writeTag(ARR, vals.length);
+      case LONG:{
+        long[] val =new long[len];
+        for (int i=0;i<len;i++){
+          val[i] = dis.readLong();
+        }
+        return val;
+      }
+      case DOUBLE:{
+        double[] val =new double[len];
+        for (int i=0;i<len;i++){
+          val[i] = dis.readDouble();
+        }
+        return val;
+      }
+      default:{
+        throw new RuntimeException("Invalid type : "+tagByte);
+      }
+    }
+
+  }
+  public void writePrimitiveArrHeader(byte tag, int len) throws IOException {
+    writeTag(PRIMITIVE_ARR);
+    writeTag(tag);
+    writeVInt(len, daos);
+  }
+
+  public void writeFloatArr(float[] vals) throws IOException {
+   writePrimitiveArrHeader(FLOAT, vals.length);
     for (float f : vals) {
-      writeFloat(f);
+      daos.writeFloat(f);
     }
   }
 
+
   public void writeIntArr(int[] vals) throws IOException {
-    writeTag(ARR, vals.length);
+    writePrimitiveArrHeader(INT, vals.length);
     for (int i : vals) {
-      writeInt(i);
+      daos.writeInt(i);
     }
   }
   public void writeDoubleArr(double[] vals) throws IOException {
-    writeTag(ARR, vals.length);
-    for (double i : vals) {
-      writeDouble(i);
+    writePrimitiveArrHeader(DOUBLE, vals.length);
+    for (double d : vals) {
+      daos.writeDouble(d);
     }
   }
   public void writeLongArr(long[] vals) throws IOException {
-    writeTag(ARR, vals.length);
-    for (long i : vals) {
-      writeDouble(i);
+    writePrimitiveArrHeader(LONG, vals.length);
+    for (long l : vals) {
+      daos.writeLong(l);
     }
   }
+
 
   public class BinEntryWriter implements MapWriter.EntryWriter {
     @Override
@@ -848,12 +897,6 @@ public class JavaBinCodec implements PushWriter {
       Object o = arr[i];
       writeVal(o);
     }
-  }
-
-  /**Optimize for reading primitive arrays, if subclasses want to do it
-   */
-  public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
-    return readArray(dis);
   }
 
   @SuppressWarnings({"unchecked"})

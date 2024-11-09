@@ -47,7 +47,7 @@ public class TestVectorStream extends SolrCloudTestCase {
             modifyConfig(testCollection, client);
             //wikipedia_vector_dump_100.csv.gz
             //10k_wiki.csv.gz
-            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("10k_wiki.csv.gz")))) {
+            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(TEST_PATH().resolve("wikipedia_vector_dump_100.csv.gz")))) {
                 Indexer.indexDocs(client, 0, in,
                         testCollection, 100000, 1);
             }
@@ -58,7 +58,7 @@ public class TestVectorStream extends SolrCloudTestCase {
             QueryResponse resp = client.query(testCollection, new MapSolrParams(Map.of("q", "*:*")));
             numFound = resp.getResults().getNumFound();
 
-            assertEquals(9997, numFound);
+            assertEquals(100, numFound);
             System.out.println("num docs: " +numFound);
         } finally {
             cluster.shutdown();
@@ -77,30 +77,7 @@ public class TestVectorStream extends SolrCloudTestCase {
         codec.writeIterator(l.iterator());
         codec.close();
 
-        Object result = new JavaBinCodec() {
-            @Override
-            public Object checkAndReadArray(DataInputInputStream dis) throws IOException {
-                int sz = readSize(dis);
-                tagByte = dis.readByte();
-                if (tagByte == FLOAT) {
-                    float[] f = new float[sz];
-                    f[0] = dis.readFloat();
-                    for (int i = 1; i < sz; i++) {
-                        tagByte = dis.readByte();
-                        f[i] = dis.readFloat();
-                    }
-                    return f;
-                } else {
-                    ArrayList<Object> l = new ArrayList<>(sz);
-                    l.add(readObject(dis));
-                    for (int i = 1; i < sz; i++) {
-                        l.add(readVal(dis));
-                    }
-                    return l;
-                }
-
-            }
-        }
+        Object result = new JavaBinCodec()
                 .unmarshal(baos.toByteArray());
         List<Object> list = (List<Object>) result;
 
