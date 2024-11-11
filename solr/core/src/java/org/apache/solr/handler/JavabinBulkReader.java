@@ -28,7 +28,6 @@ public class JavabinBulkReader extends JavaBinCodec {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<Object> readIterator(DataInputInputStream fis) throws IOException {
         docSink.start();
         indexerThread = new Thread(new IndexerRunnable());
@@ -38,7 +37,7 @@ public class JavabinBulkReader extends JavaBinCodec {
                 Object o = readVal(fis);
                 if (o == END_OBJ) break;
                 else if (o instanceof Map) {
-                    docSink.doc(new SolrInputDocument((Map<String, SolrInputField>)o));
+                    docSink.doc(new SolrInputDocument((Map)o));
                 }
             }
             return null;
@@ -70,7 +69,7 @@ public class JavabinBulkReader extends JavaBinCodec {
     }
 
     @Override
-    @SuppressWarnings({"rawtypes", "unchecked"})
+    @SuppressWarnings({"rawtypes"})
     protected Map<Object, Object> newMap(int size) {
         NamedList<Object> nl = new NamedList<>(10) {
             @Override
@@ -80,8 +79,8 @@ public class JavabinBulkReader extends JavaBinCodec {
                 super.add(name, f);
             }
         };
-        Map m = nl.asShallowMap(true);
-        return  (Map<Object, Object>)m;
+        Map m =nl.asShallowMap(true);
+        return  m;
     }
 
 
